@@ -24,8 +24,12 @@ async fn main() -> Result<(), Box<dyn Error>> {
             cfg.with_idle_connection_timeout(Duration::from_secs(60_u64)) // 接続期間。終わるとSwarmEvent::ConnectionClosedが発生。
         })
         .build();
+    let peer_id = swarm.local_peer_id();
+    println!("My peer ID: {}", peer_id);
 
     swarm.listen_on("/ip4/0.0.0.0/tcp/0".parse()?)?;
+
+    // 引数があれば接続先として扱う
     if let Some(addr) = std::env::args().nth(1) {
         let remote: Multiaddr = addr.parse()?;
         swarm.dial(remote)?;
