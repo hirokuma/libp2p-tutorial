@@ -74,11 +74,13 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     println!("Enter messages via STDIN and they will be sent to connected peers using Gossipsub");
 
-    // Kick it off
+    // gossipsubの仕様でmessageIdが同じになるとpublish()でDuplicateエラーになる。
+    // message_id_fn の実装でmessageIdの計算方法を変更できる。
     loop {
         select! {
             Ok(Some(line)) = stdin.next_line() => {
                 // 標準入力を取得したらpublishする
+                // 大文字に変換して送信させている
                 let line = line.to_uppercase();
                 if let Err(e) = swarm
                     .behaviour_mut().gossipsub
@@ -110,8 +112,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     println!(
                         "Got message: '{msg}' with id: {id} from peer: {peer_id}",
                     );
-                    // TODO: ここで"HELLO"と"WORLD"を延々と交換する予定だったがgossipsubの仕様でそれができない。
-                    // デフォルトではmessage_bytesをハッシュした値が一致するとDuplicateエラーになるため。
                     if msg == "HELLO" {
                         if let Err(e) = swarm
                             .behaviour_mut()
@@ -196,11 +196,21 @@ fn my_behaviour(key: &Keypair) -> MyBehaviour {
 }
 
 fn behaviour(key: &Keypair) -> Result<MyBehaviour, Box<dyn Error>> {
-    // To content-address message, we can take the hash of message and use it as an ID.
+    // ここでMessageIdを計算している。
+    // GossipSubは同じMessageIdのブロードキャストをエラーにするので暫定で時間要素を入れている
     let message_id_fn = |message: &gossipsub::Message| {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis();
+        let mut v = now.to_le_bytes().to_vec();
+        v.extend_from_slice(&message.data);
+
         let mut s = DefaultHasher::new();
-        message.data.hash(&mut s);
-        gossipsub::MessageId::from(s.finish().to_string())
+        v.hash(&mut s);
+        let h = s.finish().to_string();
+        println!("hash: {}", h);
+        gossipsub::MessageId::from(h)
     };
 
     // Set a custom gossipsub configuration
