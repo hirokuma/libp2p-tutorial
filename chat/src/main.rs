@@ -29,7 +29,7 @@ use std::{
 
 use futures::stream::StreamExt;
 use libp2p::{
-    Swarm, gossipsub, mdns, noise, swarm::{NetworkBehaviour, SwarmEvent}, tcp, yamux
+    Swarm, gossipsub, identity::Keypair, mdns, noise, swarm::{NetworkBehaviour, SwarmEvent}, tcp, yamux
 };
 use tokio::{io, io::AsyncBufReadExt, select};
 use tracing_subscriber::EnvFilter;
@@ -110,6 +110,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     println!(
                         "Got message: '{msg}' with id: {id} from peer: {peer_id}",
                     );
+                    // TODO: ここで"HELLO"と"WORLD"を延々と交換する予定だったがgossipsubの仕様でそれができない。
+                    // デフォルトではmessage_bytesをハッシュした値が一致するとDuplicateエラーになるため。
                     if msg == "HELLO" {
                         if let Err(e) = swarm
                             .behaviour_mut()
@@ -147,35 +149,7 @@ fn swarm_with_quic() -> Result<Swarm<MyBehaviour>, Box<dyn Error>> {
             yamux::Config::default, // yamux, mplex, ...
         )?
         .with_quic()
-        .with_behaviour(
-            // このクロージャを別関数にしたかったのだが解決方法が分からなかった
-            |key| {
-            // To content-address message, we can take the hash of message and use it as an ID.
-            let message_id_fn = |message: &gossipsub::Message| {
-                let mut s = DefaultHasher::new();
-                message.data.hash(&mut s);
-                gossipsub::MessageId::from(s.finish().to_string())
-            };
-
-            // Set a custom gossipsub configuration
-            let gossipsub_config = gossipsub::ConfigBuilder::default()
-                .heartbeat_interval(Duration::from_secs(10)) // This is set to aid debugging by not cluttering the log space
-                .validation_mode(gossipsub::ValidationMode::Strict) // This sets the kind of message validation. The default is Strict (enforce message
-                // signing)
-                .message_id_fn(message_id_fn) // content-address messages. No two messages of the same content will be propagated.
-                .build()
-                .map_err(io::Error::other)?; // Temporary hack because `build` does not return a proper `std::error::Error`.
-
-            // build a gossipsub network behaviour
-            let gossipsub = gossipsub::Behaviour::new(
-                gossipsub::MessageAuthenticity::Signed(key.clone()),
-                gossipsub_config,
-            )?;
-
-            let mdns =
-                mdns::tokio::Behaviour::new(mdns::Config::default(), key.public().to_peer_id())?;
-            Ok(MyBehaviour { gossipsub, mdns })
-        })?
+        .with_behaviour(my_behaviour)?
         .build();
     Ok(swarm)
 }
@@ -194,33 +168,7 @@ fn swarm_without_quic() -> Result<Swarm<MyBehaviour>, Box<dyn Error>> {
             noise::Config::new, // noise, tls, plaintext(for test), ...
             yamux::Config::default, // yamux, mplex, ...
         )?
-        .with_behaviour(|key| {
-            // To content-address message, we can take the hash of message and use it as an ID.
-            let message_id_fn = |message: &gossipsub::Message| {
-                let mut s = DefaultHasher::new();
-                message.data.hash(&mut s);
-                gossipsub::MessageId::from(s.finish().to_string())
-            };
-
-            // Set a custom gossipsub configuration
-            let gossipsub_config = gossipsub::ConfigBuilder::default()
-                .heartbeat_interval(Duration::from_secs(10)) // This is set to aid debugging by not cluttering the log space
-                .validation_mode(gossipsub::ValidationMode::Strict) // This sets the kind of message validation. The default is Strict (enforce message
-                // signing)
-                .message_id_fn(message_id_fn) // content-address messages. No two messages of the same content will be propagated.
-                .build()
-                .map_err(io::Error::other)?; // Temporary hack because `build` does not return a proper `std::error::Error`.
-
-            // build a gossipsub network behaviour
-            let gossipsub = gossipsub::Behaviour::new(
-                gossipsub::MessageAuthenticity::Signed(key.clone()),
-                gossipsub_config,
-            )?;
-
-            let mdns =
-                mdns::tokio::Behaviour::new(mdns::Config::default(), key.public().to_peer_id())?;
-            Ok(MyBehaviour { gossipsub, mdns })
-        })?
+        .with_behaviour(my_behaviour)?
         .build();
     Ok(swarm)
 }
@@ -241,4 +189,37 @@ fn get_swarm_fn(use_quic: bool) ->
     } else {
         (swarm_without_quic, listen_without_quic)
     }
+}
+
+fn my_behaviour(key: &Keypair) -> MyBehaviour {
+    behaviour(key).expect("build behaviour for MyBehaviour")
+}
+
+fn behaviour(key: &Keypair) -> Result<MyBehaviour, Box<dyn Error>> {
+    // To content-address message, we can take the hash of message and use it as an ID.
+    let message_id_fn = |message: &gossipsub::Message| {
+        let mut s = DefaultHasher::new();
+        message.data.hash(&mut s);
+        gossipsub::MessageId::from(s.finish().to_string())
+    };
+
+    // Set a custom gossipsub configuration
+    let gossipsub_config = gossipsub::ConfigBuilder::default()
+        .heartbeat_interval(Duration::from_secs(10)) // This is set to aid debugging by not cluttering the log space
+        .validation_mode(gossipsub::ValidationMode::Strict) // This sets the kind of message validation. The default is Strict (enforce message
+        // signing)
+        .message_id_fn(message_id_fn) // content-address messages. No two messages of the same content will be propagated.
+        .build()
+        .map_err(io::Error::other)?; // Temporary hack because `build` does not return a proper `std::error::Error`.
+        //(Copilot提案) .map_err(|e| Box::<dyn Error>::from(e))?; // Map build error into boxed error.
+
+    // build a gossipsub network behaviour
+    let gossipsub = gossipsub::Behaviour::new(
+        gossipsub::MessageAuthenticity::Signed(key.clone()),
+        gossipsub_config,
+    )?;
+
+    let mdns =
+        mdns::tokio::Behaviour::new(mdns::Config::default(), key.public().to_peer_id())?;
+    Ok(MyBehaviour { gossipsub, mdns })
 }
