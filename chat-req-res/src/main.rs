@@ -22,6 +22,7 @@ struct ChatResponse {
     data: String,
 }
 
+// MyBehaviour と MyBehaviourEvent ができる
 #[derive(NetworkBehaviour)]
 struct MyBehaviour {
     request_response: request_response::cbor::Behaviour<ChatRequest, ChatResponse>,
@@ -65,27 +66,30 @@ async fn main() -> Result<(), Box<dyn Error>> {
     // Listen on all interfaces and whatever port the OS assigns
     swarm.listen_on(format!("/ip4/0.0.0.0/tcp/{my_port}").parse()?)?;
 
-   if connect_port.len() > 0 {
+    if connect_port.len() > 0 {
         let remote: Multiaddr = format!("/ip4/127.0.0.1/tcp/{connect_port}").parse()?;
         swarm.dial(remote)?;
         println!("Dialed");
     }
 
+    println!("Enter messages via STDIN and they will be sent to connected peer");
 
-    println!("Enter messages via STDIN and they will be sent to connected peers");
-
-    // gossipsubの仕様でmessageIdが同じになるとpublish()でDuplicateエラーになる。
-    // message_id_fn の実装でmessageIdの計算方法を変更できる。
-    let mut connected_peer_id = PeerId::random();
+    // ConnectionEstablishedでpeer_idを保存して使うのだが、未設定だとsend_request()でエラーになるのでこうしている
+    let mut connected_peer_id: Option<PeerId> = None;
     loop {
         select! {
             Ok(Some(line)) = stdin.next_line() => {
-                // https://deepwiki.com/search/requestresponse-behaviour_3732d1e4-4ee6-49e1-8805-e10941b9b463?mode=fast
+                // 標準入力をそのまま接続先にリクエストとして送信
+                // なお複数接続は考慮していない
                 println!("input: {line}");
-                let id = swarm.behaviour_mut()
-                    .request_response
-                    .send_request(&connected_peer_id, ChatRequest{data: line});
-                println!("send request id: {}", id);
+                if let Some(peer_id) = connected_peer_id {
+                    let id = swarm.behaviour_mut()
+                        .request_response
+                        .send_request(&peer_id, ChatRequest{data: line});
+                    println!("send request id: {}", id);
+                } else {
+                    eprintln!("Peer not found");
+                }
             },
             event = swarm.select_next_some() => match event {
                 // 通信系イベント?
@@ -94,16 +98,23 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     println!("Local node is listening on {address}");
                 },
                 SwarmEvent::ConnectionEstablished {peer_id, connection_id: _, endpoint: _, num_established: _, concurrent_dial_errors: _, established_in: _ } => {
-                    connected_peer_id = peer_id;
-                    println!("connected: {}", connected_peer_id);
+                    // 接続時にPeerIdを覚える
+                    println!("connected: {}", peer_id);
+                    connected_peer_id = Some(peer_id);
                 },
-                SwarmEvent::ConnectionClosed { peer_id: _, connection_id: _, endpoint: _, num_established: _, cause: _ } => println!("disconnected"),
+                SwarmEvent::ConnectionClosed { peer_id: _, connection_id: _, endpoint: _, num_established: _, cause: _ } => {
+                    // 切断時にPeerIdは忘れる
+                    println!("disconnected");
+                    connected_peer_id = None;
+                },
                 // SwarmEvent::Behaviour(event) => println!("{event:?}"),
                 SwarmEvent::Behaviour(MyBehaviourEvent::RequestResponse(request_response::Event::Message {
                     peer: _,
                     connection_id: _,
                     message: request_response::Message::Request { request_id: _, request, channel },
                 })) => {
+                    // リクエスト受信とレスポンス送信
+                    // リクエスト文字列を大文字にして返すだけ
                     println!("request: {}", request.data);
                     let res_msg = request.data.to_uppercase();
                     if let Err(e) = swarm
@@ -120,6 +131,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     connection_id: _,
                     message: request_response::Message::Response { request_id: _, response }
                 })) => {
+                    // レスポンス受信
                     println!("response: {}", response.data);
                 },
 
