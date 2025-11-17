@@ -9,6 +9,7 @@ members = [
 
 [workspace.dependencies]
 futures = "0.3.31"
-libp2p = { version = "0.56.0", features = ["tokio", "gossipsub", "mdns", "noise", "macros", "tcp", "yamux", "quic", "ping", "request-response"] }
+libp2p = { version = "0.56.0", features = ["tokio", "gossipsub", "mdns", "noise", "macros", "tcp", "yamux", "quic", "ping", "request-response", "cbor"] }
+serde = { version = "1.0", features = ["derive"] }
 tokio = { version = "1.48.0", features = ["full"] }
 tracing-subscriber = { version = "0.3.20", features = ["env-filter"] }
