@@ -29,6 +29,11 @@ struct MyBehaviour {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
+    // 1番目は自分のポート番号。必須。
+    let my_port = std::env::args().nth(1).expect("Listen port number");
+    // 2番目は接続先のポート番号。ないなら接続しに行かない。
+    let connect_port = std::env::args().nth(2).unwrap_or("".to_string());
+
     // libp2pのトレースログを出力可能にする。出力するには環境変数RUST_LOGの設定が必要。
     //  export RUST_LOG=info,[ConnectionHandler::poll]=trace,[NetworkBehaviour::poll]=trace
     //  https://libp2p.github.io/rust-libp2p/metrics_example/index.html#opentelemetry
@@ -58,16 +63,14 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let mut stdin = io::BufReader::new(io::stdin()).lines();
 
     // Listen on all interfaces and whatever port the OS assigns
-    swarm.listen_on("/ip4/0.0.0.0/tcp/0".parse()?)?;
+    swarm.listen_on(format!("/ip4/0.0.0.0/tcp/{my_port}").parse()?)?;
 
-    // 引数があれば接続先として扱う
-    if let Some(addr) = std::env::args().nth(1) {
-        let remote: Multiaddr = addr.parse()?;
+   if connect_port.len() > 0 {
+        let remote: Multiaddr = format!("/ip4/127.0.0.1/tcp/{connect_port}").parse()?;
         swarm.dial(remote)?;
-        println!("Dialed: {addr}");
-    } else {
-        println!("Not dialed");
+        println!("Dialed");
     }
+
 
     println!("Enter messages via STDIN and they will be sent to connected peers");
 
@@ -102,10 +105,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     message: request_response::Message::Request { request_id: _, request, channel },
                 })) => {
                     println!("request: {}", request.data);
+                    let res_msg = request.data.to_uppercase();
                     if let Err(e) = swarm
                         .behaviour_mut()
                         .request_response
-                        .send_response(channel, ChatResponse{data: "WORLD".to_string()}) {
+                        .send_response(channel, ChatResponse{data: res_msg}) {
                         println!("response send error: {e:?}");
                     } else {
                         println!("send response");
