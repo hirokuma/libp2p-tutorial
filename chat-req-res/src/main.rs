@@ -11,6 +11,8 @@ use serde::{Deserialize, Serialize};
 use tokio::{io, io::AsyncBufReadExt, select};
 use tracing_subscriber::EnvFilter;
 
+use chat_req_res::server;
+
 // Request/Responseで送受信するメッセージ型
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 struct ChatRequest {
@@ -33,6 +35,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let my_port = std::env::args().nth(1).expect("Listen port number");
     // 2番目は接続先のポート番号。ないなら接続しに行かない。
     let connect_port = std::env::args().nth(2).unwrap_or("".to_string());
+
+    tokio::spawn(server::start("127.0.0.1:8000".to_string()));
 
     // libp2pのトレースログを出力可能にする。出力するには環境変数RUST_LOGの設定が必要。
     //  export RUST_LOG=info,[ConnectionHandler::poll]=trace,[NetworkBehaviour::poll]=trace
