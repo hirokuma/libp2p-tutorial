@@ -8,7 +8,7 @@ use libp2p::{
     tcp, yamux,
 };
 use serde::{Deserialize, Serialize};
-use tokio::{io, io::AsyncBufReadExt, select};
+use tokio::{io::{self, AsyncBufReadExt}, select, sync::mpsc};
 use tracing_subscriber::EnvFilter;
 
 use chat_req_res::server;
@@ -36,7 +36,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
     // 2番目は接続先のポート番号。ないなら接続しに行かない。
     let connect_port = std::env::args().nth(2).unwrap_or("".to_string());
 
-    tokio::spawn(server::start("127.0.0.1:8000".to_string()));
+    let (tx, mut rx) = mpsc::channel::<String>(10);
+    tokio::spawn(server::start("127.0.0.1:8000".to_string(), tx.clone()));
 
     // libp2pのトレースログを出力可能にする。出力するには環境変数RUST_LOGの設定が必要。
     //  export RUST_LOG=info,[ConnectionHandler::poll]=trace,[NetworkBehaviour::poll]=trace
@@ -90,6 +91,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     .request_response
                     .send_request(&connected_peer_id, ChatRequest{data: line});
                 println!("send request id: {}", id);
+            },
+            Some(msg) = rx.recv() => {
+                println!("received: {}", msg);
             },
             event = swarm.select_next_some() => match event {
                 // 通信系イベント?

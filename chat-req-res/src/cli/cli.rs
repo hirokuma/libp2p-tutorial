@@ -1,7 +1,7 @@
 use anyhow::Result;
 use clap::{CommandFactory, Parser, Subcommand};
 
-use rest::{RestReq, RestRes};
+use chat_req_res::{RestReq, RestRes};
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
@@ -17,6 +17,8 @@ struct Cli {
 enum Commands {
     /// Send greeting message
     Greet { msg: String },
+    /// Yebisu beer
+    Yebisu,
 }
 
 fn main() -> Result<()> {
@@ -30,6 +32,7 @@ fn main() -> Result<()> {
             None
         }
         Some(Commands::Greet { msg }) => Some(RestReq::new("greet", msg)),
+        Some(Commands::Yebisu) => Some(RestReq::new("yebisu", "")),
     };
 
     if let Some(req) = req {

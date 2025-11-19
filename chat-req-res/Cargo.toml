@@ -3,6 +3,14 @@ name = "chat-req-res"
 version = "0.1.0"
 edition = "2024"
 
+[[bin]]
+name = "chat-req-res"
+path = "src/main.rs"
+
+[[bin]]
+name = "cli"
+path = "src/cli/cli.rs"
+
 [dependencies]
 anyhow = { workspace = true }
 futures = { workspace = true }
@@ -12,4 +20,6 @@ tokio = { workspace = true }
 tracing-subscriber = { workspace = true }
 
 axum = { version = "0.8.7", features = ["macros"] }
+clap = { version = "4.5.52", features = ["derive"] }
 serde_json = "1.0.145"
+ureq = { version = "3.1.4", features = ["json"] }

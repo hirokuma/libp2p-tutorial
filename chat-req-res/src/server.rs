@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::Arc};
 
 use anyhow::Result;
 use axum::{
@@ -10,14 +10,15 @@ use axum::{
     routing::post,
 };
 use serde_json::json;
+use tokio::sync::mpsc::Sender;
 
 use crate::{CommandHandler, RestReq, RestRes, cmd};
 
-pub async fn start(host: String) {
+pub async fn start(host: String, tx: Sender<String>) {
     // Build our application with some routes
     let app = Router::new()
         .route("/", post(AppState::handler))
-        .with_state(AppState::new());
+        .with_state(AppState::new(tx));
 
     // Run our application
     let listener = tokio::net::TcpListener::bind(host)
@@ -25,17 +26,17 @@ pub async fn start(host: String) {
         .unwrap();
     axum::serve(listener, app).await.unwrap();
 }
-
 #[derive(Clone)]
 struct AppState {
-    handlers: HashMap<&'static str, CommandHandler>,
+    handlers: Arc<HashMap<&'static str, CommandHandler>>,
+    tx: Sender<String>,
 }
 
 impl AppState {
-    fn new() -> Self {
-        let handlers = cmd::register_handle();
+    fn new(tx: Sender<String>) -> Self {
+        let handlers = Arc::new(cmd::register_handle());
 
-        Self { handlers }
+        Self { handlers, tx }
     }
 
     // "/" に対してここが post で呼ばれる
@@ -45,7 +46,7 @@ impl AppState {
     ) -> Result<Json<RestRes>, AppError> {
         match state.handlers.get(value.command.as_str()) {
             Some(func) => {
-                let res = func(&value)?;
+                let res = func(state.tx, value).await?;
                 Ok(Json(res))
             },
             None => Err(AppError(anyhow::anyhow!("だめ"))),
